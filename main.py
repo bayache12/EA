@@ -8,149 +8,174 @@ from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.action_chains import ActionChains
 
 
-def viable_collate(driver):
-    to_return = []
-    collates = ["POST Collate and Sort", "PRE Collate and Sort", "MID Collate and Sort"]
-    WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.XPATH, '//label[text()="Ranges"]')))
-    for i in driver.find_elements(By.XPATH, value="//label"):
-        if i.text in collates:
-            to_return.append(i.text)
-    return to_return[::-1]
+class EAScraper:
 
+    def __init__(self, url, username,
+                 password, sleep_length, academic_year, driver_path):
+        self.missed_files = []
+        self.viable_paths = {}
+        self.url = url
+        self.username = username
+        self.password = password
+        self.sleep_length = sleep_length
+        self.academic_year = academic_year
+        self.driver = webdriver.Chrome(service=Service(driver_path))
 
-def refresh_search(driver):
-    element_before_refresh = WebDriverWait(driver, 10).until(
-        EC.visibility_of_element_located((By.ID, "analyse_academic_year")))
-    toggle_search(driver)
-    WebDriverWait(driver, 10).until(EC.staleness_of(element_before_refresh))
-    toggle_search(driver)
+    def click_on_element(self, element, value):
+        WebDriverWait(self.driver, self.sleep_length).until(
+            EC.element_to_be_clickable((element, value))).click()
 
+    def toggle_search_button(self):
+        self.click_on_element(By.CLASS_NAME, "switch.search_switch")
 
-def login(driver, username, password):
-    WebDriverWait(driver, 10).until(
-        EC.visibility_of_all_elements_located((By.CLASS_NAME, "login_buttons")))[1].click()
-    driver.find_element(by=By.ID, value="username").send_keys(username)
-    driver.find_element(by=By.ID, value="password").send_keys(password)
-    driver.find_element(by=By.ID, value="sign_in").click()
-    WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.ID, "teacher_logout")))
-    driver.get("https://www.essentialassessment.com.au/quiz/")
-    try:
-        WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.ID, "settings_wrapper")))
-        body_element = driver.find_element(by=By.TAG_NAME, value="body")
-        ActionChains(driver).move_to_element(body_element).click().perform()
-    except TimeoutException:
-        pass
+    def refresh_search(self):
+        element_before_refresh = WebDriverWait(self.driver, self.sleep_length).until(
+            EC.visibility_of_element_located((By.ID, "analyse_academic_year")))
+        self.toggle_search_button()
+        WebDriverWait(self.driver, self.sleep_length).until(
+            EC.staleness_of(element_before_refresh))
+        self.toggle_search_button()
 
+    def login(self):
 
-def toggle_search(driver):
-    wait_for_click(driver, By.CLASS_NAME, "switch.search_switch")
+        self.driver.get(self.url)
+        self.driver.maximize_window()
+        WebDriverWait(self.driver, self.sleep_length).until(
+            EC.visibility_of_all_elements_located((By.CLASS_NAME, "login_buttons")))[1].click()
+        self.driver.find_element(by=By.ID, value="username").send_keys(self.username)
+        self.driver.find_element(by=By.ID, value="password").send_keys(self.password)
+        self.driver.find_element(by=By.ID, value="sign_in").click()
 
+    def get_export(self):
+        WebDriverWait(self.driver, self.sleep_length).until(
+            EC.visibility_of_element_located((By.ID, "teacher_logout")))
+        self.driver.get("https://www.essentialassessment.com.au/quiz/")
 
-def has_general_all(driver):
-    try:
-        WebDriverWait(driver, 10).until(
-            EC.visibility_of_any_elements_located((By.CLASS_NAME, 'analyse_dropdown_style')))
-        elements = driver.find_elements(By.CLASS_NAME, value='analyse_dropdown_style')
-
-        for element in elements:
-            if element.text.strip() == "General All":
-                WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable((By.XPATH, '//button[text()="General All"]'))).click()
-                return True
-        return False
-
-    except TimeoutException:
-        return False
-
-
-def wait_for_click(driver, element, value):
-    WebDriverWait(driver, 10).until(EC.element_to_be_clickable((element, value))).click()
-
-
-def get_viable_paths(academic_year, driver):
-    to_populate = {
-    }
-    wait_for_click(driver, By.ID, "analyse_academic_year")
-    wait_for_click(driver, By.XPATH, f'//button[text()="{academic_year}"]')
-    wait_for_click(driver, By.XPATH, '//button[text()="Strand"]')
-    for strand in [i.text for i in
-                   driver.find_elements(by=By.CLASS_NAME, value="analyse_dropdown_style")
-                   if i.text.strip() != ""]:
-        wait_for_click(driver, By.ID, "analyse_academic_year")
-        wait_for_click(driver, By.XPATH, f'//button[text()="{academic_year}"]')
-        wait_for_click(driver, By.XPATH, '//button[text()="Strand"]')
-        wait_for_click(driver, By.XPATH, f'//button[text()="{strand}"]')
-        wait_for_click(driver, By.XPATH, '//button[text()="Substrand"]')
-        if has_general_all(driver):
-            WebDriverWait(driver, 10).until(
-                EC.invisibility_of_element_located((By.CSS_SELECTOR, f"#search_wrapper_3_1.search_disabled")))
-            wait_for_click(driver, By.XPATH, '//button[text()="Year"]')
-            WebDriverWait(driver, 10).until(
-                EC.visibility_of_element_located((By.CLASS_NAME, 'analyse_dropdown_style.analyse_dropdown_style_2')))
-            to_populate[strand] = [
-                i.text for i in
-                driver.find_elements(By.CLASS_NAME, value='analyse_dropdown_style.analyse_dropdown_style_2')
-                if i.text.strip() != ""
-            ]
-        refresh_search(driver)
-    print('done')
-    return to_populate
-
-
-def get_strand_year_files(academic_year, subject, year, driver):
-    refresh_search(driver)
-    instructions_one = [
-        [By.ID, "analyse_academic_year"],
-        [By.XPATH, f'//button[text()="{academic_year}"]'],
-        [By.XPATH, '//button[text()="Strand"]'],
-        [By.XPATH, f'//button[text()="{subject}"]'],
-        [By.XPATH, '//button[text()="Substrand"]'],
-        [By.XPATH, '//button[text()="General All"]']
-    ]
-    instructions_two = [
-        [By.XPATH, '//button[text()="Year"]'],
-        [By.XPATH, f'//button[text()={year}]'],
-        [By.XPATH, '//button[text()="Level"]'],
-        [By.XPATH, '//button[text()="All Levels"]'],
-        [By.ID, "search_button"]
-    ]
-
-    for instruction in instructions_one:
-        wait_for_click(driver, instruction[0], instruction[1])
-    WebDriverWait(driver, 10).until(
-        EC.invisibility_of_element_located((By.CSS_SELECTOR, f"#search_wrapper_3_1.search_disabled")))
-    for instruction in instructions_two:
-        wait_for_click(driver, instruction[0], instruction[1])
-    for collate in viable_collate(driver):
         try:
-            wait_for_click(driver, By.XPATH, f'//label[text()="{collate}"]')
-            wait_for_click(driver, By.ID, "export_results")
-            wait_for_click(driver, By.XPATH, '//button[text()="Export A.S.R (XLSX)"]')
-            WebDriverWait(driver, 10).until(
+            WebDriverWait(self.driver, self.sleep_length).until(
+                EC.visibility_of_element_located((By.ID, "settings_wrapper")))
+            body_element = self.driver.find_element(by=By.TAG_NAME, value="body")
+            ActionChains(self.driver).move_to_element(body_element).click().perform()
+
+        except TimeoutException:
+            print("No pop up detected")
+
+        finally:
+            self.click_on_element(By.ID, "export_data_main_text")
+            WebDriverWait(self.driver, self.sleep_length).until(
                 EC.invisibility_of_element_located((By.ID, "pdf_animator_all")))
-            print(f"{year} - {subject} - {collate}")
-        except:
-            continue
+            self.toggle_search_button()
+
+    def has_general_all(self):
+        try:
+            WebDriverWait(self.driver, self.sleep_length).until(
+                EC.visibility_of_any_elements_located((By.CLASS_NAME, 'analyse_dropdown_style')))
+            elements = self.driver.find_elements(By.CLASS_NAME, value='analyse_dropdown_style')
+
+            for element in elements:
+                if element.text.strip() == "General All":
+                    self.click_on_element(By.XPATH, '//button[text()="General All"]')
+                    return True
+            return False
+
+        except TimeoutException:
+            return False
+
+    def has_viable_collate(self):
+        viable_collates = []
+        WebDriverWait(self.driver, self.sleep_length).until(
+            EC.presence_of_element_located((By.XPATH, '//label[text()="Ranges"]')))
+        for element in self.driver.find_elements(By.XPATH, value="//label"):
+            if element.text in ("POST Collate and Sort",
+                                "PRE Collate and Sort",
+                                "MID Collate and Sort"):
+                viable_collates.append(element.text)
+        return viable_collates
+
+    def populate_viable_paths(self):
+        self.click_on_element(By.ID, "analyse_academic_year")
+        self.click_on_element(By.XPATH, f'//button[text()="{self.academic_year}"]')
+        self.click_on_element(By.XPATH, '//button[text()="Strand"]')
+
+        for strand in [i.text for i in
+                       self.driver.find_elements(by=By.CLASS_NAME, value="analyse_dropdown_style")
+                       if i.text.strip()]:
+            self.click_on_element(By.ID, "analyse_academic_year")
+            self.click_on_element(By.XPATH, f'//button[text()="{self.academic_year}"]')
+            self.click_on_element(By.XPATH, '//button[text()="Strand"]')
+            self.click_on_element(By.XPATH, f'//button[text()="{strand}"]')
+            self.click_on_element(By.XPATH, '//button[text()="Substrand"]')
+            if self.has_general_all():
+                WebDriverWait(self.driver, self.sleep_length).until(
+                    EC.invisibility_of_element_located((By.CSS_SELECTOR, f"#search_wrapper_3_1.search_disabled")))
+                self.click_on_element(By.XPATH, '//button[text()="Year"]')
+                WebDriverWait(self.driver, self.sleep_length).until(
+                    EC.visibility_of_element_located(
+                        (By.CLASS_NAME, 'analyse_dropdown_style.analyse_dropdown_style_2')))
+                self.viable_paths[strand] = [
+                    i.text for i in
+                    self.driver.find_elements(By.CLASS_NAME, value='analyse_dropdown_style.analyse_dropdown_style_2')
+                    if i.text and i.text.isnumeric()
+                ]
+            self.refresh_search()
+
+    def get_file(self, subject, classroom_year):
+
+        try:
+
+            buttons_to_click = (
+                (By.ID, "analyse_academic_year"),
+                (By.XPATH, f'//button[text()="{self.academic_year}"]'),
+                (By.XPATH, '//button[text()="Strand"]'),
+                (By.XPATH, f'//button[text()="{subject}"]'),
+                (By.XPATH, '//button[text()="Substrand"]'),
+                (By.XPATH, '//button[text()="General All"]')
+            )
+
+            for button in buttons_to_click:
+                self.click_on_element(button[0], button[1])
+
+            WebDriverWait(self.driver, self.sleep_length).until(
+                EC.invisibility_of_element_located((By.CSS_SELECTOR, f"#search_wrapper_3_1.search_disabled")))
+
+            self.click_on_element(By.XPATH, '//button[text()="Year"]')
+            self.click_on_element(By.XPATH, f'//button[text()={classroom_year}]')
+            self.click_on_element(By.XPATH, '//button[text()="Level"]')
+            self.click_on_element(By.XPATH, '//button[text()="All Levels"]')
+            self.click_on_element(By.ID, "search_button")
+
+            for collate in self.has_viable_collate():
+                try:
+                    self.click_on_element(By.XPATH, f'//label[text()="{collate}"]')
+                    self.click_on_element(By.ID, "export_results")
+                    self.click_on_element(By.XPATH, '//button[text()="Export A.S.R (XLSX)"]')
+                    WebDriverWait(self.driver, self.sleep_length).until(
+                        EC.invisibility_of_element_located((By.ID, "pdf_animator_all")))
+                except TimeoutException:
+                    self.missed_files.append(f'{subject}-{classroom_year}-{collate} '
+                                             f'not found, likely disappearing bug')
+        except TimeoutException:
+            self.missed_files.append(f'Files likely dont exist: '
+                                     f'{subject}-{classroom_year}')
+        self.refresh_search()
+
+    def begin_process(self):
+        self.login()
+        self.get_export()
+        self.populate_viable_paths()
+        for subject in self.viable_paths:
+            for classroom_year in self.viable_paths[subject]:
+                self.get_file(subject, classroom_year)
+
+        print(self.missed_files)
 
 
-def main():
-    year = 2022
-    script_settings = {"driver path": "chromedriver.exe"}
-    state = {"Username": "", "Password": ""}
-
-    driver = webdriver.Chrome(service=Service(script_settings["driver path"]))
-    url = 'https://www.essentialassessment.com.au/'
-    driver.get(url)
-    driver.maximize_window()
-    login(driver, state["Username"], state["Password"])
-    wait_for_click(driver, By.ID, "export_data_main_text")
-    WebDriverWait(driver, 10).until(
-        EC.invisibility_of_element_located((By.ID, "pdf_animator_all")))
-    toggle_search(driver)
-    viable_paths = get_viable_paths(year, driver)
-    for key in viable_paths.keys():
-        for academic_year in viable_paths[key]:
-            get_strand_year_files(year, key, academic_year, driver)
-
-
-main()
+st_anthony = EAScraper(
+    url="https://www.essentialassessment.com.au/",
+    username="",
+    password="",
+    sleep_length=20,
+    academic_year=2022,
+    driver_path="chromedriver.exe"
+)
+st_anthony.begin_process()
