@@ -1,3 +1,4 @@
+import os
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -11,7 +12,9 @@ from selenium.webdriver.common.action_chains import ActionChains
 class EAScraper:
 
     def __init__(self, url, username,
-                 password, sleep_length, academic_year, driver_path):
+                 password, sleep_length, academic_year,
+                 driver_path, download_path, school_name):
+        self.full_path = None
         self.missed_files = []
         self.viable_paths = {}
         self.url = url
@@ -19,21 +22,39 @@ class EAScraper:
         self.password = password
         self.sleep_length = sleep_length
         self.academic_year = academic_year
-        self.driver = webdriver.Chrome(service=Service(driver_path))
+        self.download_path = download_path
+        self.school_name = school_name
+        chromeOptions = webdriver.ChromeOptions()
+        prefs = {"download.default_directory": self.download_path}
+        chromeOptions.add_experimental_option("prefs", prefs)
+        self.driver = webdriver.Chrome(service=Service(driver_path),
+                                       options=chromeOptions)
 
     def click_on_element(self, element, value):
         WebDriverWait(self.driver, self.sleep_length).until(
             EC.element_to_be_clickable((element, value))).click()
 
+    def create_directory(self):
+        self.full_path = f'{self.download_path}/{self.school_name}'
+        if self.school_name not in os.listdir(self.download_path):
+            print("School Directory not existent in this path, creating...")
+            os.mkdir(self.full_path)
+        else:
+            print("School directory already exists...")
+
+    def rename_file(self, new_name):
+        for file in os.listdir(self.download_path):
+            if file.endswith('.xlsx'):
+                os.rename(f'{self.download_path}/{file}',
+                          f'{self.full_path}/{new_name}.xlsx')
+
     def toggle_search_button(self):
         self.click_on_element(By.CLASS_NAME, "switch.search_switch")
 
     def refresh_search(self):
-        element_before_refresh = WebDriverWait(self.driver, self.sleep_length).until(
-            EC.visibility_of_element_located((By.ID, "analyse_academic_year")))
         self.toggle_search_button()
         WebDriverWait(self.driver, self.sleep_length).until(
-            EC.staleness_of(element_before_refresh))
+            EC.visibility_of_element_located((By.ID, "export_data_main_text")))
         self.toggle_search_button()
 
     def login(self):
@@ -64,6 +85,8 @@ class EAScraper:
             self.click_on_element(By.ID, "export_data_main_text")
             WebDriverWait(self.driver, self.sleep_length).until(
                 EC.invisibility_of_element_located((By.ID, "pdf_animator_all")))
+            self.create_directory()
+            self.rename_file("Main Export")
             self.toggle_search_button()
 
     def has_general_all(self):
@@ -145,19 +168,19 @@ class EAScraper:
             self.click_on_element(By.ID, "search_button")
 
             for collate in self.has_viable_collate():
-                try:
-                    self.click_on_element(By.XPATH, f'//label[text()="{collate}"]')
-                    self.click_on_element(By.ID, "export_results")
-                    self.click_on_element(By.XPATH, '//button[text()="Export A.S.R (XLSX)"]')
-                    WebDriverWait(self.driver, self.sleep_length).until(
-                        EC.invisibility_of_element_located((By.ID, "pdf_animator_all")))
-                except TimeoutException:
-                    self.missed_files.append(f'{subject}-{classroom_year}-{collate} '
-                                             f'not found, likely disappearing bug')
+                self.click_on_element(By.XPATH, '//label[text()="Ranges"]')
+                self.click_on_element(By.XPATH, f'//label[text()="{collate}"]')
+                self.click_on_element(By.ID, "export_results")
+                self.click_on_element(By.XPATH, '//button[text()="Export A.S.R (XLSX)"]')
+                WebDriverWait(self.driver, self.sleep_length).until(
+                    EC.invisibility_of_element_located((By.ID, "pdf_animator_all")))
+                self.rename_file(f'Year {classroom_year} {subject} {collate}')
+
         except TimeoutException:
             self.missed_files.append(f'Files likely dont exist: '
                                      f'{subject}-{classroom_year}')
-        self.refresh_search()
+        finally:
+            self.refresh_search()
 
     def begin_process(self):
         self.login()
@@ -174,8 +197,10 @@ st_anthony = EAScraper(
     url="https://www.essentialassessment.com.au/",
     username="",
     password="",
-    sleep_length=20,
+    sleep_length=10,
     academic_year=2022,
-    driver_path="chromedriver.exe"
+    driver_path="chromedriver.exe",
+    download_path=r"C:\Users\youruser\OneDrive\Desktop\anything",
+    school_name=""
 )
 st_anthony.begin_process()
