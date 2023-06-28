@@ -1,11 +1,12 @@
 import os
+import time
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
 from selenium.webdriver.common.action_chains import ActionChains
 
 
@@ -43,10 +44,18 @@ class EAScraper:
             print("School directory already exists...")
 
     def rename_file(self, new_name):
-        for file in os.listdir(self.download_path):
-            if file.endswith('.xlsx'):
-                os.rename(f'{self.download_path}/{file}',
-                          f'{self.full_path}/{new_name}.xlsx')
+        try:
+            for file in os.listdir(self.download_path):
+                if file.endswith('.xlsx'):
+                    os.rename(f'{self.download_path}/{file}',
+                              f'{self.full_path}/{new_name}.xlsx')
+        except FileExistsError:
+            print(f"X File {new_name} failed to be renamed and sorted")
+
+    def wait_for_download(self):
+        while not [file for file in os.listdir(self.download_path) if file.endswith('.xlsx')]:
+            print("Waiting for download...")
+            time.sleep(2)
 
     def toggle_search_button(self):
         self.click_on_element(By.CLASS_NAME, "switch.search_switch")
@@ -79,14 +88,16 @@ class EAScraper:
             ActionChains(self.driver).move_to_element(body_element).click().perform()
 
         except TimeoutException:
-            print("No pop up detected")
+            print("X No pop up detected")
 
         finally:
             self.click_on_element(By.ID, "export_data_main_text")
             WebDriverWait(self.driver, self.sleep_length).until(
                 EC.invisibility_of_element_located((By.ID, "pdf_animator_all")))
+            self.wait_for_download()
             self.create_directory()
             self.rename_file("Main Export")
+            print(f'---- Main Export Successfully Downloaded')
             self.toggle_search_button()
 
     def has_general_all(self):
@@ -106,14 +117,18 @@ class EAScraper:
 
     def has_viable_collate(self):
         viable_collates = []
-        WebDriverWait(self.driver, self.sleep_length).until(
-            EC.presence_of_element_located((By.XPATH, '//label[text()="Ranges"]')))
-        for element in self.driver.find_elements(By.XPATH, value="//label"):
-            if element.text in ("POST Collate and Sort",
-                                "PRE Collate and Sort",
-                                "MID Collate and Sort"):
-                viable_collates.append(element.text)
-        return viable_collates
+        try:
+            WebDriverWait(self.driver, self.sleep_length).until(
+                EC.presence_of_element_located((By.XPATH, '//label[text()="Ranges"]')))
+            for element in self.driver.find_elements(By.XPATH, value="//label"):
+                if element.text in ("POST Collate and Sort",
+                                    "PRE Collate and Sort",
+                                    "MID Collate and Sort"):
+                    viable_collates.append(element.text)
+        except TimeoutException:
+            print("X Ranges Button Not Found")
+        finally:
+            return viable_collates
 
     def populate_viable_paths(self):
         self.click_on_element(By.ID, "analyse_academic_year")
@@ -123,24 +138,29 @@ class EAScraper:
         for strand in [i.text for i in
                        self.driver.find_elements(by=By.CLASS_NAME, value="analyse_dropdown_style")
                        if i.text.strip()]:
-            self.click_on_element(By.ID, "analyse_academic_year")
-            self.click_on_element(By.XPATH, f'//button[text()="{self.academic_year}"]')
-            self.click_on_element(By.XPATH, '//button[text()="Strand"]')
-            self.click_on_element(By.XPATH, f'//button[text()="{strand}"]')
-            self.click_on_element(By.XPATH, '//button[text()="Substrand"]')
-            if self.has_general_all():
-                WebDriverWait(self.driver, self.sleep_length).until(
-                    EC.invisibility_of_element_located((By.CSS_SELECTOR, f"#search_wrapper_3_1.search_disabled")))
-                self.click_on_element(By.XPATH, '//button[text()="Year"]')
-                WebDriverWait(self.driver, self.sleep_length).until(
-                    EC.visibility_of_element_located(
-                        (By.CLASS_NAME, 'analyse_dropdown_style.analyse_dropdown_style_2')))
-                self.viable_paths[strand] = [
-                    i.text for i in
-                    self.driver.find_elements(By.CLASS_NAME, value='analyse_dropdown_style.analyse_dropdown_style_2')
-                    if i.text and i.text.isnumeric()
-                ]
-            self.refresh_search()
+            try:
+                self.click_on_element(By.ID, "analyse_academic_year")
+                self.click_on_element(By.XPATH, f'//button[text()="{self.academic_year}"]')
+                self.click_on_element(By.XPATH, '//button[text()="Strand"]')
+                self.click_on_element(By.XPATH, f'//button[text()="{strand}"]')
+                self.click_on_element(By.XPATH, '//button[text()="Substrand"]')
+                if self.has_general_all():
+                    WebDriverWait(self.driver, self.sleep_length).until(
+                        EC.invisibility_of_element_located((By.CSS_SELECTOR, f"#search_wrapper_3_1.search_disabled")))
+                    self.click_on_element(By.XPATH, '//button[text()="Year"]')
+                    WebDriverWait(self.driver, self.sleep_length).until(
+                        EC.visibility_of_element_located(
+                            (By.CLASS_NAME, 'analyse_dropdown_style.analyse_dropdown_style_2')))
+                    self.viable_paths[strand] = [
+                        i.text for i in
+                        self.driver.find_elements(By.CLASS_NAME, value='analyse_dropdown_style.analyse_dropdown_style_2')
+                        if i.text and i.text.isnumeric()
+                    ]
+            except TimeoutException:
+                print(f"X Failed to include {strand} in viable paths, might be missing substrand")
+
+            finally:
+                self.refresh_search()
 
     def get_file(self, subject, classroom_year):
 
@@ -168,17 +188,21 @@ class EAScraper:
             self.click_on_element(By.ID, "search_button")
 
             for collate in self.has_viable_collate():
-                self.click_on_element(By.XPATH, '//label[text()="Ranges"]')
-                self.click_on_element(By.XPATH, f'//label[text()="{collate}"]')
-                self.click_on_element(By.ID, "export_results")
-                self.click_on_element(By.XPATH, '//button[text()="Export A.S.R (XLSX)"]')
-                WebDriverWait(self.driver, self.sleep_length).until(
-                    EC.invisibility_of_element_located((By.ID, "pdf_animator_all")))
-                self.rename_file(f'Year {classroom_year} {subject} {collate}')
+                try:
+                    self.click_on_element(By.XPATH, '//label[text()="Ranges"]')
+                    self.click_on_element(By.XPATH, f'//label[text()="{collate}"]')
+                    self.click_on_element(By.ID, "export_results")
+                    self.click_on_element(By.XPATH, '//button[text()="Export A.S.R (XLSX)"]')
+                    WebDriverWait(self.driver, self.sleep_length).until(
+                        EC.invisibility_of_element_located((By.ID, "pdf_animator_all")))
+                    self.wait_for_download()
+                    self.rename_file(f'Year {classroom_year} {subject} {collate}')
+                    print(f'---- Successfully downloaded Year-{classroom_year} {subject} {collate}')
+                except StaleElementReferenceException:
+                    print(f'X Missed {collate} - disappearing Element - Try increasing wait time')
 
         except TimeoutException:
-            self.missed_files.append(f'Files likely dont exist: '
-                                     f'{subject}-{classroom_year}')
+            self.missed_files.append(f'{subject}-{classroom_year}')
         finally:
             self.refresh_search()
 
@@ -188,19 +212,24 @@ class EAScraper:
         self.populate_viable_paths()
         for subject in self.viable_paths:
             for classroom_year in self.viable_paths[subject]:
+                print(f'Attempting to begin downloads on Year-{classroom_year} {subject}')
                 self.get_file(subject, classroom_year)
 
-        print(self.missed_files)
+        if self.missed_files:
+            for file in self.missed_files:
+                print(f'X {file} not found/downloaded, if file exists please report issue.')
+        else:
+            print("All Files Successfully Downloaded")
 
 
 st_anthony = EAScraper(
     url="https://www.essentialassessment.com.au/",
     username="",
     password="",
-    sleep_length=10,
-    academic_year=2022,
+    sleep_length=30,
+    academic_year=2023,
     driver_path="chromedriver.exe",
-    download_path=r"C:\Users\youruser\OneDrive\Desktop\anything",
+    download_path=r"C:\Users\yourUsername\OneDrive\Desktop\whereYouStoreIt",
     school_name=""
 )
 st_anthony.begin_process()
