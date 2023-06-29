@@ -6,19 +6,21 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
+from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, \
+    ElementClickInterceptedException, ElementNotInteractableException
 from selenium.webdriver.common.action_chains import ActionChains
 
 
 class EAScraper:
 
-    def __init__(self, url, username,
+    def __init__(self, username, school_name,
                  password, sleep_length, academic_year,
-                 driver_path, download_path, school_name):
+                 driver_path, download_path):
+
         self.full_path = None
         self.missed_files = []
         self.viable_paths = {}
-        self.url = url
+        self.url = "https://www.essentialassessment.com.au/"
         self.username = username
         self.password = password
         self.sleep_length = sleep_length
@@ -26,22 +28,38 @@ class EAScraper:
         self.download_path = download_path
         self.school_name = school_name
         chromeOptions = webdriver.ChromeOptions()
-        prefs = {"download.default_directory": self.download_path}
+        prefs = {"download.default_directory": self.download_path,
+                 "safebrowsing.disable_download_protection": True}
         chromeOptions.add_experimental_option("prefs", prefs)
         self.driver = webdriver.Chrome(service=Service(driver_path),
                                        options=chromeOptions)
 
     def click_on_element(self, element, value):
-        WebDriverWait(self.driver, self.sleep_length).until(
-            EC.element_to_be_clickable((element, value))).click()
+        clicked = False
+        while not clicked:
+            try:
+                WebDriverWait(self.driver, self.sleep_length).until(
+                    EC.element_to_be_clickable((element, value))).click()
+                clicked = True
+            except (ElementClickInterceptedException, ElementNotInteractableException):
+                print(f"---- Something was blocking button: {value} trying again in 1 second.")
+                time.sleep(1)
 
     def create_directory(self):
-        self.full_path = f'{self.download_path}/{self.school_name}'
-        if self.school_name not in os.listdir(self.download_path):
-            print("School Directory not existent in this path, creating...")
-            os.mkdir(self.full_path)
-        else:
-            print("School directory already exists...")
+        try:
+            self.full_path = f'{self.download_path}/{self.school_name}/{self.academic_year}'
+            if self.school_name not in os.listdir(self.download_path):
+                print("---- School Directory not existent in this path, creating")
+                os.mkdir(f'{self.download_path}/{self.school_name}')
+                os.mkdir(self.full_path)
+            elif self.academic_year not in os.listdir(f'{self.download_path}/{self.school_name}'):
+                print("---- Academic year directory not existent for this school, creating")
+                os.mkdir(self.full_path)
+            else:
+                print("---- School directory already exists")
+        except Exception as e:
+            print(f"---- Error creating directory for file storage, Please fix and rerun...")
+            time.sleep(10)
 
     def rename_file(self, new_name):
         try:
@@ -53,8 +71,10 @@ class EAScraper:
             print(f"X File {new_name} failed to be renamed and sorted")
 
     def wait_for_download(self):
+        if len([file for file in os.listdir(self.download_path) if file.endswith('.xlsx')]) != 0:
+            input("Multiple Excel Files Detected In Download Directory, Please Fix and then press any key: ")
         while not [file for file in os.listdir(self.download_path) if file.endswith('.xlsx')]:
-            print("Waiting for download...")
+            print("------ Waiting for download")
             time.sleep(2)
 
     def toggle_search_button(self):
@@ -126,7 +146,7 @@ class EAScraper:
                                     "MID Collate and Sort"):
                     viable_collates.append(element.text)
         except TimeoutException:
-            print("X Ranges Button Not Found")
+            print("X Ranges Button Not Found: Increase sleep times if strand was skipped X")
         finally:
             return viable_collates
 
@@ -153,7 +173,8 @@ class EAScraper:
                             (By.CLASS_NAME, 'analyse_dropdown_style.analyse_dropdown_style_2')))
                     self.viable_paths[strand] = [
                         i.text for i in
-                        self.driver.find_elements(By.CLASS_NAME, value='analyse_dropdown_style.analyse_dropdown_style_2')
+                        self.driver.find_elements(By.CLASS_NAME,
+                                                  value='analyse_dropdown_style.analyse_dropdown_style_2')
                         if i.text and i.text.isnumeric()
                     ]
             except TimeoutException:
@@ -183,8 +204,20 @@ class EAScraper:
 
             self.click_on_element(By.XPATH, '//button[text()="Year"]')
             self.click_on_element(By.XPATH, f'//button[text()={classroom_year}]')
+
+            WebDriverWait(self.driver, self.sleep_length).until(
+                EC.invisibility_of_element_located((By.CSS_SELECTOR, f"#search_wrapper_2_1.search_disabled")))
+
             self.click_on_element(By.XPATH, '//button[text()="Level"]')
+
+            WebDriverWait(self.driver, self.sleep_length).until(
+                EC.visibility_of_element_located((By.XPATH, '//button[text()="All Levels"]')))
+
             self.click_on_element(By.XPATH, '//button[text()="All Levels"]')
+
+            WebDriverWait(self.driver, self.sleep_length).until(
+                EC.invisibility_of_element_located((By.CSS_SELECTOR, f"#analyse_button_wrapper.search_disabled")))
+
             self.click_on_element(By.ID, "search_button")
 
             for collate in self.has_viable_collate():
@@ -197,7 +230,7 @@ class EAScraper:
                         EC.invisibility_of_element_located((By.ID, "pdf_animator_all")))
                     self.wait_for_download()
                     self.rename_file(f'Year {classroom_year} {subject} {collate}')
-                    print(f'---- Successfully downloaded Year-{classroom_year} {subject} {collate}')
+                    print(f'------ Successfully downloaded Year-{classroom_year} {subject} {collate}')
                 except StaleElementReferenceException:
                     print(f'X Missed {collate} - disappearing Element - Try increasing wait time')
 
@@ -212,7 +245,7 @@ class EAScraper:
         self.populate_viable_paths()
         for subject in self.viable_paths:
             for classroom_year in self.viable_paths[subject]:
-                print(f'Attempting to begin downloads on Year-{classroom_year} {subject}')
+                print(f'---- Attempting to begin downloads on Year-{classroom_year} {subject}')
                 self.get_file(subject, classroom_year)
 
         if self.missed_files:
@@ -222,14 +255,12 @@ class EAScraper:
             print("All Files Successfully Downloaded")
 
 
-st_anthony = EAScraper(
-    url="https://www.essentialassessment.com.au/",
+EAScraper(
     username="",
     password="",
-    sleep_length=30,
-    academic_year=2023,
+    school_name="",
+    sleep_length=40,
+    academic_year=2022,
     driver_path="chromedriver.exe",
-    download_path=r"C:\Users\yourUsername\OneDrive\Desktop\whereYouStoreIt",
-    school_name=""
-)
-st_anthony.begin_process()
+    download_path=r"C:\Users\test\OneDrive\Desktop\test",
+).begin_process()
