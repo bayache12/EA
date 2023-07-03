@@ -71,11 +71,11 @@ class EAScraper:
             print(f"X File {new_name} failed to be renamed and sorted")
 
     def wait_for_download(self):
-        if len([file for file in os.listdir(self.download_path) if file.endswith('.xlsx')]) != 0:
-            input("Multiple Excel Files Detected In Download Directory, Please Fix and then press any key: ")
         while not [file for file in os.listdir(self.download_path) if file.endswith('.xlsx')]:
             print("------ Waiting for download")
             time.sleep(2)
+        if len([file for file in os.listdir(self.download_path) if file.endswith('.xlsx')]) != 1:
+            input("Multiple Excel Files Detected In Download Directory, Please Fix and then press any key: ")
 
     def toggle_search_button(self):
         self.click_on_element(By.CLASS_NAME, "switch.search_switch")
