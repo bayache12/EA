@@ -9,6 +9,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, \
     ElementClickInterceptedException, ElementNotInteractableException
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.remote.webelement import WebElement
 
 
 class EAScraper:
@@ -41,7 +42,9 @@ class EAScraper:
                 WebDriverWait(self.driver, self.sleep_length).until(
                     EC.element_to_be_clickable((element, value))).click()
                 clicked = True
-            except (ElementClickInterceptedException, ElementNotInteractableException):
+            except (ElementClickInterceptedException, ElementNotInteractableException) as e:
+
+                print(e)
                 print(f"---- Something was blocking button: {value} trying again in 1 second.")
                 time.sleep(1)
 
@@ -86,6 +89,25 @@ class EAScraper:
             EC.visibility_of_element_located((By.ID, "export_data_main_text")))
         self.toggle_search_button()
 
+    def close_ea_trial_button(self):  # <- new pop up section after closing side pop up
+        self.click_on_element(By.ID, "ea_trial_video_close")
+
+    def click_button_bottom(self, element, value):
+
+        WebDriverWait(self.driver, self.sleep_length).until(
+            EC.element_to_be_clickable((element, value)))
+
+        button = self.driver.find_element(by=element, value=value)
+
+        button_width = button.size['width']
+        button_height = button.size['height']
+
+        offset_x = button_width // 2
+        offset_y = button_height // 3
+
+        actions = ActionChains(self.driver)
+        actions.move_to_element(button).move_by_offset(offset_x, offset_y).click().perform()
+
     def login(self):
 
         self.driver.get(self.url)
@@ -102,16 +124,22 @@ class EAScraper:
         self.driver.get("https://www.essentialassessment.com.au/quiz/")
 
         try:
+
             WebDriverWait(self.driver, self.sleep_length).until(
                 EC.visibility_of_element_located((By.ID, "settings_wrapper")))
             body_element = self.driver.find_element(by=By.TAG_NAME, value="body")
             ActionChains(self.driver).move_to_element(body_element).click().perform()
+            self.close_ea_trial_button()
 
         except TimeoutException:
-            print("X No pop up detected")
+            print("Either or pop up not-detected - if first undetected might crash")
 
         finally:
+            WebDriverWait(self.driver, self.sleep_length).until(
+                EC.invisibility_of_element_located((By.ID, "ea_intro_nt")))
             self.click_on_element(By.ID, "export_data_main_text")
+            print("Clicked")
+            self.click_on_element(By.XPATH, f'//button[text()="Export {self.academic_year} Data"]')
             WebDriverWait(self.driver, self.sleep_length).until(
                 EC.invisibility_of_element_located((By.ID, "pdf_animator_all")))
             self.wait_for_download()
@@ -121,15 +149,17 @@ class EAScraper:
             self.toggle_search_button()
 
     def has_general_all(self):
+        time.sleep(1)
         try:
-            WebDriverWait(self.driver, self.sleep_length).until(
-                EC.visibility_of_any_elements_located((By.CLASS_NAME, 'analyse_dropdown_style')))
-            elements = self.driver.find_elements(By.CLASS_NAME, value='analyse_dropdown_style')
+            if not self.driver.find_elements(by=By.XPATH,value='//button[text()="No Completed Sub-Strands"]'):
+                WebDriverWait(self.driver, self.sleep_length).until(
+                    EC.visibility_of_any_elements_located((By.CLASS_NAME, 'analyse_dropdown_style')))
+                elements = self.driver.find_elements(By.CLASS_NAME, value='analyse_dropdown_style')
 
-            for element in elements:
-                if element.text.strip() == "General All":
-                    self.click_on_element(By.XPATH, '//button[text()="General All"]')
-                    return True
+                for element in elements:
+                    if element.text.strip() == "General All":
+                        self.click_on_element(By.XPATH, '//button[text()="General All"]')
+                        return True
             return False
 
         except TimeoutException:
@@ -151,7 +181,7 @@ class EAScraper:
             return viable_collates
 
     def populate_viable_paths(self):
-        self.click_on_element(By.ID, "analyse_academic_year")
+        self.click_button_bottom(By.ID, "analyse_academic_year")
         self.click_on_element(By.XPATH, f'//button[text()="{self.academic_year}"]')
         self.click_on_element(By.XPATH, '//button[text()="Strand"]')
 
@@ -159,7 +189,7 @@ class EAScraper:
                        self.driver.find_elements(by=By.CLASS_NAME, value="analyse_dropdown_style")
                        if i.text.strip()]:
             try:
-                self.click_on_element(By.ID, "analyse_academic_year")
+                self.click_button_bottom(By.ID, "analyse_academic_year")
                 self.click_on_element(By.XPATH, f'//button[text()="{self.academic_year}"]')
                 self.click_on_element(By.XPATH, '//button[text()="Strand"]')
                 self.click_on_element(By.XPATH, f'//button[text()="{strand}"]')
@@ -188,13 +218,14 @@ class EAScraper:
         try:
 
             buttons_to_click = (
-                (By.ID, "analyse_academic_year"),
                 (By.XPATH, f'//button[text()="{self.academic_year}"]'),
                 (By.XPATH, '//button[text()="Strand"]'),
                 (By.XPATH, f'//button[text()="{subject}"]'),
                 (By.XPATH, '//button[text()="Substrand"]'),
                 (By.XPATH, '//button[text()="General All"]')
             )
+
+            self.click_button_bottom(By.ID, "analyse_academic_year")
 
             for button in buttons_to_click:
                 self.click_on_element(button[0], button[1])
@@ -207,12 +238,14 @@ class EAScraper:
 
             WebDriverWait(self.driver, self.sleep_length).until(
                 EC.invisibility_of_element_located((By.CSS_SELECTOR, f"#search_wrapper_2_1.search_disabled")))
-
+            time.sleep(1)
             self.click_on_element(By.XPATH, '//button[text()="Level"]')
+            time.sleep(1)
+            WebDriverWait(self.driver, self.sleep_length).until(
+                EC.invisibility_of_element_located((By.CSS_SELECTOR, f"#analyse_search_asr_wrapper_2.search_disabled")))
 
             WebDriverWait(self.driver, self.sleep_length).until(
                 EC.visibility_of_element_located((By.XPATH, '//button[text()="All Levels"]')))
-
             self.click_on_element(By.XPATH, '//button[text()="All Levels"]')
 
             WebDriverWait(self.driver, self.sleep_length).until(
