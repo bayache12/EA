@@ -18,7 +18,8 @@ class EAScraper:
                  password, sleep_length, academic_year,
                  driver_path, download_path):
 
-        self.full_path = None
+        self.full_path = f'{download_path}/{school_name}/{academic_year}'
+        self.temp_folder = rf'{download_path}\{school_name}\{academic_year}\temp'
         self.missed_files = []
         self.viable_paths = {}
         self.url = "https://www.essentialassessment.com.au/"
@@ -29,8 +30,9 @@ class EAScraper:
         self.download_path = download_path
         self.school_name = school_name
         chromeOptions = webdriver.ChromeOptions()
-        prefs = {"download.default_directory": self.download_path,
+        prefs = {"download.default_directory": rf'{download_path}\{school_name}\{academic_year}\temp',
                  "safebrowsing.disable_download_protection": True}
+        print(prefs)
         chromeOptions.add_experimental_option("prefs", prefs)
         self.driver = webdriver.Chrome(service=Service(driver_path),
                                        options=chromeOptions)
@@ -50,14 +52,15 @@ class EAScraper:
 
     def create_directory(self):
         try:
-            self.full_path = f'{self.download_path}/{self.school_name}/{self.academic_year}'
             if self.school_name not in os.listdir(self.download_path):
                 print("---- School Directory not existent in this path, creating")
                 os.mkdir(f'{self.download_path}/{self.school_name}')
                 os.mkdir(self.full_path)
+                os.mkdir(f'{self.full_path}/temp')
             elif self.academic_year not in os.listdir(f'{self.download_path}/{self.school_name}'):
                 print("---- Academic year directory not existent for this school, creating")
                 os.mkdir(self.full_path)
+                os.mkdir(f'{self.full_path}/temp')
             else:
                 print("---- School directory already exists")
         except Exception as e:
@@ -66,19 +69,20 @@ class EAScraper:
 
     def rename_file(self, new_name):
         try:
-            for file in os.listdir(self.download_path):
+            for file in os.listdir(self.temp_folder):
                 if file.endswith('.xlsx'):
-                    os.rename(f'{self.download_path}/{file}',
+                    os.rename(f'{self.temp_folder}/{file}',
                               f'{self.full_path}/{new_name}.xlsx')
         except FileExistsError:
             print(f"X File {new_name} failed to be renamed and sorted")
 
     def wait_for_download(self):
-        while not [file for file in os.listdir(self.download_path) if file.endswith('.xlsx')]:
+        print(self.temp_folder)
+        while not [file for file in os.listdir(self.temp_folder) if file.endswith('.xlsx')]:
             print("------ Waiting for download")
             time.sleep(2)
-        if len([file for file in os.listdir(self.download_path) if file.endswith('.xlsx')]) != 1:
-            input("Multiple Excel Files Detected In Download Directory, Please Fix and then press any key: ")
+        if len([file for file in os.listdir(self.temp_folder) if file.endswith('.xlsx')]) != 1:
+            input("Multiple Excel Files Detected In school temp file Directory, Please Fix and then press any key: ")
 
     def toggle_search_button(self):
         self.click_on_element(By.CLASS_NAME, "switch.search_switch")
@@ -143,7 +147,6 @@ class EAScraper:
             WebDriverWait(self.driver, self.sleep_length).until(
                 EC.invisibility_of_element_located((By.ID, "pdf_animator_all")))
             self.wait_for_download()
-            self.create_directory()
             self.rename_file("Main Export")
             print(f'---- Main Export Successfully Downloaded')
             self.toggle_search_button()
@@ -274,6 +277,7 @@ class EAScraper:
 
     def begin_process(self):
         self.login()
+        self.create_directory()
         self.get_export()
         self.populate_viable_paths()
         for subject in self.viable_paths:
